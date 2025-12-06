@@ -13,6 +13,11 @@ from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth import get_user_model
 
 from .serializers import LoginSerializer
+from rest_framework.permissions import IsAuthenticated
+from .permissions import IsAdmin
+from rest_framework import status
+
+from .serializers import UserSignupSerializer
 class SignupAPIView(CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
@@ -71,3 +76,27 @@ class ResetPasswordAPIView(APIView):
                 return Response({"message": "Password reset successful"})
 
         return Response({"error": "Invalid or expired token"}, status=400)
+
+
+class AdminCreateUserAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request):
+        # Admin can create HR or Interviewer (or admin) users
+        serializer = UserSignupSerializer(data=request.data, context={'admin_create': True})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminDeleteUserAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def delete(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        user.delete()
+        return Response({'detail': 'User deleted'}, status=status.HTTP_204_NO_CONTENT)

@@ -101,3 +101,15 @@ class Interview(models.Model):
     
     def __str__(self):
         return f"Interview for {self.application.applied_for.title} on {self.date}"
+
+
+class Notification(models.Model):
+    user = models.ForeignKey(
+        'rbac.User', on_delete=models.CASCADE, related_name='notifications'
+    )
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"Notification to {self.user.email}: {self.message[:40]}"

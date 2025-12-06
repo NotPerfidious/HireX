@@ -11,7 +11,12 @@ class UserSignupSerializer(serializers.ModelSerializer):
             'password': {'write_only': True}
         }
     def create(self,validated_data):
-        role=validated_data['role']
+        role = validated_data.get('role')
+        # By default only allow creating candidates via public signup endpoint.
+        # Views that create HR/interviewer should pass context={'admin_create': True}.
+        if not self.context.get('admin_create', False) and role != 'candidate':
+            raise serializers.ValidationError({'role': 'Only candidates can sign up. HR/Interviewer must be created by Admin.'})
+
         validated_data['password'] = make_password(validated_data['password'])
 
         if role == 'hr':
