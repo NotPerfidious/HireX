@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rbac.permissions import IsHR, IsCandidate, IsInterviewer, IsAdmin
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rbac.models import User
+from rbac.models import Candidate, User, Interviewer
 
 
 class Jobs(APIView):
@@ -107,17 +107,25 @@ class ApplyJobAPIView(APIView):
         serializer = ApplicationSerializer(data=request.data)
         if serializer.is_valid():
             job = serializer.validated_data['applied_for']
-            # prevent duplicate
-            if Application.objects.filter(applied_by=request.user, applied_for=job).exists():
+            
+            
+            try:
+                candidate_instance = request.user.candidate
+            except Candidate.DoesNotExist:
+                return Response({'detail': 'User is authenticated but no associated Candidate profile found.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # prevent duplicate: USE candidate_instance
+            if Application.objects.filter(applied_by=candidate_instance, applied_for=job).exists():
                 return Response({'detail': 'Already applied'}, status=status.HTTP_400_BAD_REQUEST)
 
             app = Application.objects.create(
                 description=serializer.validated_data.get('description', ''),
-                applied_by=request.user,
+                applied_by=candidate_instance, # <-- FIX: Use the specific Candidate object
                 applied_for=job
             )
             out = ApplicationSerializer(app)
             return Response(out.data, status=status.HTTP_201_CREATED)
+            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -155,6 +163,9 @@ class ApplicationStatusUpdateAPIView(APIView):
         return Response(ApplicationSerializer(app).data)
 
 
+
+
+
 class ScheduleInterviewAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -166,13 +177,24 @@ class ScheduleInterviewAPIView(APIView):
         if serializer.is_valid():
             application = serializer.validated_data['application']
             interviewer_id = request.data.get('interviewer')
-            interviewer = None
+            
+            interviewer_instance = None 
+
             if interviewer_id:
-                interviewer = get_object_or_404(User, id=interviewer_id, role='interviewer')
+               
+                base_user = get_object_or_404(User, id=interviewer_id, role='interviewer')
+                
+                
+                try:
+                    interviewer_instance = base_user.interviewer 
+                except Interviewer.DoesNotExist:
+                    return Response({'detail': 'Interviewer user found but no associated Interviewer profile.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+
 
             interview = Interview.objects.create(
                 application=application,
-                interviewer=interviewer,
+                interviewer=interviewer_instance, # <-- FIX: Assign the specific Interviewer instance
                 date=serializer.validated_data['date'],
                 start_time=serializer.validated_data['start_time'],
                 duration=serializer.validated_data['duration']
@@ -184,8 +206,12 @@ class ScheduleInterviewAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+
+
+
+
 class InterviewerFeedbackAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    # ... (permission check omitted) ...
 
     def post(self, request, interview_id):
         if getattr(request.user, 'role', None) != 'interviewer':
@@ -194,10 +220,18 @@ class InterviewerFeedbackAPIView(APIView):
         interview = get_object_or_404(Interview, id=interview_id)
         serializer = FeedbackSerializer(data=request.data)
         if serializer.is_valid():
+            
+            
+            try:
+                interviewer_instance = request.user.interviewer
+            except Interviewer.DoesNotExist:
+                return Response({'detail': 'User is authenticated but no associated Interviewer profile found.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            
             feedback = Feedback.objects.create(
                 feedback=serializer.validated_data['feedback'],
                 rating=serializer.validated_data['rating'],
-                reviewer=request.user
+                reviewer=interviewer_instance 
             )
             interview.feedback = feedback
             interview.save()
@@ -206,7 +240,6 @@ class InterviewerFeedbackAPIView(APIView):
             return Response(FeedbackSerializer(feedback).data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class NotificationListAPIView(APIView):
     permission_classes = [IsAuthenticated]

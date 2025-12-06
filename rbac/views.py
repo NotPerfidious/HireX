@@ -18,9 +18,17 @@ from .permissions import IsAdmin
 from rest_framework import status
 
 from .serializers import UserSignupSerializer
+
 class SignupAPIView(CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
+    
+    def get_serializer(self, *args, **kwargs):
+        # Allow creating any role (admin/hr/interviewer) from this endpoint
+        kwargs.setdefault('context', {})
+        kwargs['context']['admin_create'] = True
+        return super().get_serializer(*args, **kwargs)
+
 
 
 class LoginAPIView(APIView):
