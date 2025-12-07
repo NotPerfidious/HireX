@@ -5,11 +5,9 @@ from django.contrib.auth import authenticate
 
 class UserSignupSerializer(serializers.ModelSerializer):
     
-    company = serializers.PrimaryKeyRelatedField(
-        queryset=Company.objects.all(),
-        required=False,
-        write_only=True
-    )
+    # Accept either a company id or a company name (string). We'll handle both
+    # in create(): if the company does not exist by id or name, we'll create it.
+    company = serializers.CharField(required=False, write_only=True)
     
     
     class Meta:
@@ -21,7 +19,35 @@ class UserSignupSerializer(serializers.ModelSerializer):
     def create(self,validated_data):
         role = validated_data.get('role')
         
-        company = validated_data.pop('company', None)
+        company_input = validated_data.pop('company', None)
+        company = None
+        if company_input:
+            # If client sent a numeric id, try to resolve by PK first
+            try:
+                # allow Company instance passthrough (defensive)
+                if isinstance(company_input, Company):
+                    company = company_input
+                else:
+                    # try interpret as int primary key
+                    try:
+                        pk = int(company_input)
+                    except Exception:
+                        pk = None
+
+                    if pk is not None:
+                        try:
+                            company = Company.objects.get(pk=pk)
+                        except Company.DoesNotExist:
+                            company = None
+
+                    # If not found by pk, treat input as company name and get_or_create
+                    if company is None:
+                        company_name = str(company_input).strip()
+                        if company_name:
+                            company, _ = Company.objects.get_or_create(name=company_name)
+            except Exception:
+                # Fallback: ignore company if something goes wrong
+                company = None
         
         validated_data['username'] = validated_data['email']
         
@@ -64,3 +90,17 @@ class ForgotPasswordSerializer(serializers.Serializer):
 class ResetPasswordSerializer(serializers.Serializer):
     token = serializers.CharField()
     new_password = serializers.CharField()
+
+
+class CandidateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Candidate
+        fields = ['id', 'email', 'full_name', 'job_role']
+        read_only_fields = ['email']
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'full_name', 'role']
+        read_only_fields = ['id']

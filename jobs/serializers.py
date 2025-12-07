@@ -23,7 +23,7 @@ class JobSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 
             'skills',       # read-only nested
             'skill_ids',    # write-only IDs
-            'posted_date', 'is_active'
+            'posted_date', 'is_active', 'deadline'
         ]
         read_only_fields = ['id', 'posted_date']
 
@@ -34,10 +34,28 @@ class ApplicationSerializer(serializers.ModelSerializer):
     applied_for_id = serializers.PrimaryKeyRelatedField(
         queryset=JobPost.objects.all(), write_only=True, source='applied_for'
     )
+    resume = serializers.FileField(required=False, allow_null=True)
+
+    def validate_resume(self, value):
+        # Basic server-side validation: allowed extensions and max size
+        if not value:
+            return value
+        # size limit: 5 MB
+        max_size = 5 * 1024 * 1024
+        if value.size > max_size:
+            raise serializers.ValidationError('Resume file too large (max 5MB).')
+
+        # allowed extensions
+        allowed = ['.pdf', '.doc', '.docx']
+        name = getattr(value, 'name', '') or ''
+        if not any(name.lower().endswith(ext) for ext in allowed):
+            raise serializers.ValidationError('Unsupported resume format. Allowed: PDF, DOC, DOCX.')
+
+        return value
 
     class Meta:
         model = Application
-        fields = ['id', 'description', 'applied_by', 'applied_for', 'applied_for_id', 'status', 'applied_date']
+        fields = ['id', 'description', 'applied_by', 'applied_for', 'applied_for_id', 'status', 'applied_date', 'resume']
         read_only_fields = ['id', 'applied_by', 'status', 'applied_date']
 
 

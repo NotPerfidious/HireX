@@ -108,3 +108,38 @@ class AdminDeleteUserAPIView(APIView):
 
         user.delete()
         return Response({'detail': 'User deleted'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminListUsersAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        users = User.objects.all().order_by('id')
+        from .serializers import AdminUserSerializer
+        serializer = AdminUserSerializer(users, many=True)
+        return Response(serializer.data)
+
+
+class CandidateProfileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            candidate = request.user.candidate
+        except Exception:
+            return Response({'detail': 'Candidate profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        from .serializers import CandidateSerializer
+        serializer = CandidateSerializer(candidate)
+        return Response(serializer.data)
+
+    def put(self, request):
+        try:
+            candidate = request.user.candidate
+        except Exception:
+            return Response({'detail': 'Candidate profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        from .serializers import CandidateSerializer
+        serializer = CandidateSerializer(candidate, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

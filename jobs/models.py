@@ -22,6 +22,7 @@ class Skill(models.Model):
 class JobPost(models.Model):
     title = models.CharField(max_length=150)
     description = models.TextField()
+    deadline = models.DateField(null=True, blank=True)
     skills = models.ManyToManyField(Skill, related_name='job_posts')
     posted_date = models.DateTimeField(default=timezone.now) 
     is_active = models.BooleanField(default=True)
@@ -41,6 +42,7 @@ class Application(models.Model):
         on_delete=models.CASCADE,
         related_name='applications'
     )
+    resume = models.FileField(upload_to='resumes/', null=True, blank=True)
     status = models.CharField(
         max_length=20, 
         choices=APPLICATION_STATUS_CHOICES,

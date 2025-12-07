@@ -25,6 +25,10 @@ urlpatterns = [
     # Admin user management
     path("admin/create-user/", AdminCreateUserAPIView.as_view()),
     path("admin/delete-user/<int:user_id>/", AdminDeleteUserAPIView.as_view()),
+    path("admin/list-users/", AdminListUsersAPIView.as_view()),
+
+    # Candidate profile
+    path("candidate/profile/", CandidateProfileAPIView.as_view()),
 ]
 
 

@@ -7,6 +7,7 @@ from .serializers import JobSerializer,SkillSerializer
 from .models import Application, Interview, Feedback, Notification
 from .serializers import ApplicationSerializer, InterviewSerializer, FeedbackSerializer, NotificationSerializer
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from rbac.permissions import IsHR, IsCandidate, IsInterviewer, IsAdmin
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -97,6 +98,7 @@ class AddSkill(APIView):
 
 
 class ApplyJobAPIView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -104,28 +106,31 @@ class ApplyJobAPIView(APIView):
         if getattr(request.user, 'role', None) != 'candidate':
             return Response({'detail': 'Only candidates can apply'}, status=status.HTTP_403_FORBIDDEN)
 
+        # Use serializer to validate fields (applied_for via applied_for_id)
         serializer = ApplicationSerializer(data=request.data)
         if serializer.is_valid():
             job = serializer.validated_data['applied_for']
-            
-            
+
             try:
                 candidate_instance = request.user.candidate
             except Candidate.DoesNotExist:
                 return Response({'detail': 'User is authenticated but no associated Candidate profile found.'}, status=status.HTTP_400_BAD_REQUEST)
-            
-            # prevent duplicate: USE candidate_instance
+
+            # prevent duplicate
             if Application.objects.filter(applied_by=candidate_instance, applied_for=job).exists():
                 return Response({'detail': 'Already applied'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # create application and attach resume if provided
+            resume_file = request.FILES.get('resume')
             app = Application.objects.create(
                 description=serializer.validated_data.get('description', ''),
-                applied_by=candidate_instance, # <-- FIX: Use the specific Candidate object
-                applied_for=job
+                applied_by=candidate_instance,
+                applied_for=job,
+                resume=resume_file
             )
-            out = ApplicationSerializer(app)
+            out = ApplicationSerializer(app, context={'request': request})
             return Response(out.data, status=status.HTTP_201_CREATED)
-            
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -137,7 +142,23 @@ class HRApplicationListAPIView(APIView):
             return Response({'detail': 'Only HR can view applications'}, status=status.HTTP_403_FORBIDDEN)
 
         apps = Application.objects.all()
-        serializer = ApplicationSerializer(apps, many=True)
+        serializer = ApplicationSerializer(apps, many=True, context={'request': request})
+        return Response(serializer.data)
+
+
+class CandidateApplicationListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, 'role', None) != 'candidate':
+            return Response({'detail': 'Only candidates can view their applications'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            candidate = request.user.candidate
+        except Exception:
+            return Response({'detail': 'Candidate profile not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        apps = Application.objects.filter(applied_by=candidate).order_by('-applied_date')
+        serializer = ApplicationSerializer(apps, many=True, context={'request': request})
         return Response(serializer.data)
 
 
@@ -160,7 +181,7 @@ class ApplicationStatusUpdateAPIView(APIView):
         # create notification for candidate
         Notification.objects.create(user=app.applied_by, message=f"Your application for {app.applied_for.title} is now '{app.status}'")
 
-        return Response(ApplicationSerializer(app).data)
+        return Response(ApplicationSerializer(app, context={'request': request}).data)
 
 
 
@@ -239,7 +260,30 @@ class InterviewerFeedbackAPIView(APIView):
             Notification.objects.create(user=interview.application.applied_by, message=f"Feedback added for your interview on {interview.date}")
             return Response(FeedbackSerializer(feedback).data, status=status.HTTP_201_CREATED)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class InterviewsListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # If interviewer, return only their assigned interviews
+        if getattr(request.user, 'role', None) == 'interviewer':
+            try:
+                interviewer = request.user.interviewer
+            except Interviewer.DoesNotExist:
+                return Response({'detail': 'Interviewer profile not found'}, status=status.HTTP_400_BAD_REQUEST)
+            interviews = Interview.objects.filter(interviewer=interviewer).order_by('-date')
+        elif getattr(request.user, 'role', None) == 'hr':
+            interviews = Interview.objects.all().order_by('-date')
+        else:
+            # Candidates can see their own interviews
+            try:
+                candidate = request.user.candidate
+                interviews = Interview.objects.filter(application__applied_by=candidate).order_by('-date')
+            except Exception:
+                return Response({'detail': 'Not authorized to view interviews'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = InterviewSerializer(interviews, many=True, context={'request': request})
+        return Response(serializer.data)
 
 class NotificationListAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -247,4 +291,15 @@ class NotificationListAPIView(APIView):
     def get(self, request):
         notes = Notification.objects.filter(user=request.user).order_by('-created_at')
         serializer = NotificationSerializer(notes, many=True)
+        return Response(serializer.data)
+
+
+class NotificationMarkReadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, note_id):
+        note = get_object_or_404(Notification, id=note_id, user=request.user)
+        note.is_read = True
+        note.save()
+        serializer = NotificationSerializer(note)
         return Response(serializer.data)
