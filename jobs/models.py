@@ -24,7 +24,9 @@ class JobPost(models.Model):
     description = models.TextField()
     skills = models.ManyToManyField(Skill, related_name='job_posts')
     posted_date = models.DateTimeField(default=timezone.now) 
+    deadline = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    posted_by = models.ForeignKey('rbac.Hr', on_delete=models.CASCADE, null=True, blank=True, related_name='job_posts')
 
     def __str__(self):
         return self.title
@@ -47,6 +49,7 @@ class Application(models.Model):
         default='pending',
         db_index=True 
     )
+    resume = models.FileField(upload_to='resumes/', null=True, blank=True)
     applied_date = models.DateTimeField(default=timezone.now)
 
     class Meta:

@@ -23,10 +23,29 @@ class JobSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 
             'skills',       # read-only nested
             'skill_ids',    # write-only IDs
-            'posted_date', 'is_active'
+            'posted_date', 'deadline', 'is_active'
         ]
         read_only_fields = ['id', 'posted_date']
 
+    def create(self, validated_data):
+        skills = validated_data.pop('skills', [])
+        job = JobPost.objects.create(**validated_data)
+        job.skills.set(skills)
+        return job
+
+
+class SimpleFeedbackSerializer(serializers.ModelSerializer):
+    reviewer = serializers.StringRelatedField(read_only=True)
+    class Meta:
+        model = Feedback
+        fields = ['id', 'feedback', 'rating', 'reviewer', 'created_at']
+
+class SimpleInterviewSerializer(serializers.ModelSerializer):
+    feedback = SimpleFeedbackSerializer(read_only=True)
+    interviewer = serializers.StringRelatedField(read_only=True)
+    class Meta:
+        model = Interview
+        fields = ['id', 'interviewer', 'date', 'start_time', 'feedback']
 
 class ApplicationSerializer(serializers.ModelSerializer):
     applied_by = serializers.StringRelatedField(read_only=True)
@@ -34,10 +53,11 @@ class ApplicationSerializer(serializers.ModelSerializer):
     applied_for_id = serializers.PrimaryKeyRelatedField(
         queryset=JobPost.objects.all(), write_only=True, source='applied_for'
     )
+    interviews = SimpleInterviewSerializer(many=True, read_only=True)
 
     class Meta:
         model = Application
-        fields = ['id', 'description', 'applied_by', 'applied_for', 'applied_for_id', 'status', 'applied_date']
+        fields = ['id', 'description', 'applied_by', 'applied_for', 'applied_for_id', 'status', 'applied_date', 'resume', 'interviews']
         read_only_fields = ['id', 'applied_by', 'status', 'applied_date']
 
 
@@ -55,8 +75,8 @@ class InterviewSerializer(serializers.ModelSerializer):
     application_id = serializers.PrimaryKeyRelatedField(
         queryset=Application.objects.all(), write_only=True, source='application'
     )
-    # Accept interviewer id in write operations
-    interviewer = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    # Accept interviewer email in write operations
+    interviewer = serializers.CharField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = Interview

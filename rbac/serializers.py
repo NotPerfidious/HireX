@@ -5,8 +5,7 @@ from django.contrib.auth import authenticate
 
 class UserSignupSerializer(serializers.ModelSerializer):
     
-    company = serializers.PrimaryKeyRelatedField(
-        queryset=Company.objects.all(),
+    company = serializers.CharField(
         required=False,
         write_only=True
     )
@@ -34,10 +33,25 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
         if role == 'hr':
             # 4. PASS COMPANY OBJECT: Pass the company object to the Hr.objects.create call
-            return Hr.objects.create(company=company, **validated_data) 
+            company_obj = None
+            if company:
+                # Basic check: if digit, try to get ID, else create by name
+                if str(company).isdigit():
+                    try:
+                        company_obj = Company.objects.get(pk=int(company))
+                    except Company.DoesNotExist:
+                        pass
+                
+                if not company_obj:
+                    company_obj, _ = Company.objects.get_or_create(name=str(company))
+            else:
+                 # If no company provided, use a default placeholder
+                 company_obj, _ = Company.objects.get_or_create(name="Independent")
+
+            return Hr.objects.create(company=company_obj, **validated_data) 
         elif role == 'candidate':
-            # NOTE: Candidate model has 'job_role' which is also mandatory,
-            # If this fails, we will need to add 'job_role' to the serializer next.
+            # Provide default job_role to prevent 500 error
+            validated_data['job_role'] = validated_data.get('job_role', 'Applicant')
             return Candidate.objects.create(**validated_data)
         elif role == 'interviewer':
             return Interviewer.objects.create(**validated_data)

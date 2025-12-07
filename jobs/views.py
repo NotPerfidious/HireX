@@ -23,7 +23,13 @@ class Jobs(APIView):
             return Response({'detail': 'Only HR can create jobs'}, status=status.HTTP_403_FORBIDDEN)
 
         if serializer.is_valid():
-            job_instance = serializer.save()
+            # Automatically assign the HR user who posted it
+            try:
+                hr_instance = request.user.hr
+            except:
+                return Response({'detail': 'User is not linked to an HR profile'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            serializer.save(posted_by=hr_instance)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -116,10 +122,11 @@ class ApplyJobAPIView(APIView):
             
             # prevent duplicate: USE candidate_instance
             if Application.objects.filter(applied_by=candidate_instance, applied_for=job).exists():
-                return Response({'detail': 'Already applied'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'detail': f'You have already applied for {job.title}'}, status=status.HTTP_400_BAD_REQUEST)
 
             app = Application.objects.create(
                 description=serializer.validated_data.get('description', ''),
+                resume=request.FILES.get('resume'), # Handle file upload
                 applied_by=candidate_instance, # <-- FIX: Use the specific Candidate object
                 applied_for=job
             )
@@ -129,6 +136,23 @@ class ApplyJobAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class CandidateApplicationListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, 'role', None) != 'candidate':
+            return Response({'detail': 'Only candidates can view their applications'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            candidate = request.user.candidate
+        except Candidate.DoesNotExist:
+             return Response({'detail': 'Candidate profile not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        apps = Application.objects.filter(applied_by=candidate).order_by('-applied_date')
+        serializer = ApplicationSerializer(apps, many=True)
+        return Response(serializer.data)
+
+
 class HRApplicationListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -136,7 +160,7 @@ class HRApplicationListAPIView(APIView):
         if getattr(request.user, 'role', None) != 'hr':
             return Response({'detail': 'Only HR can view applications'}, status=status.HTTP_403_FORBIDDEN)
 
-        apps = Application.objects.all()
+        apps = Application.objects.all().order_by('-applied_date')
         serializer = ApplicationSerializer(apps, many=True)
         return Response(serializer.data)
 
@@ -176,13 +200,13 @@ class ScheduleInterviewAPIView(APIView):
         serializer = InterviewSerializer(data=request.data)
         if serializer.is_valid():
             application = serializer.validated_data['application']
-            interviewer_id = request.data.get('interviewer')
+            interviewer_email = request.data.get('interviewer')
             
             interviewer_instance = None 
 
-            if interviewer_id:
+            if interviewer_email:
                
-                base_user = get_object_or_404(User, id=interviewer_id, role='interviewer')
+                base_user = get_object_or_404(User, email=interviewer_email, role='interviewer')
                 
                 
                 try:
@@ -190,7 +214,6 @@ class ScheduleInterviewAPIView(APIView):
                 except Interviewer.DoesNotExist:
                     return Response({'detail': 'Interviewer user found but no associated Interviewer profile.'}, status=status.HTTP_400_BAD_REQUEST)
                 
-
 
             interview = Interview.objects.create(
                 application=application,
@@ -247,4 +270,33 @@ class NotificationListAPIView(APIView):
     def get(self, request):
         notes = Notification.objects.filter(user=request.user).order_by('-created_at')
         serializer = NotificationSerializer(notes, many=True)
+        return Response(serializer.data)
+    
+class NotificationReadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, notif_id):
+        try:
+            notification = Notification.objects.get(id=notif_id, user=request.user)
+        except Notification.DoesNotExist:
+            return Response({'detail': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        notification.is_read = True
+        notification.save()
+        return Response(NotificationSerializer(notification).data)
+
+class InterviewerInterviewListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, 'role', None) != 'interviewer':
+            return Response({'detail': 'Only Interviewers can view their interviews'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            interviewer = request.user.interviewer
+        except Interviewer.DoesNotExist:
+             return Response({'detail': 'Interviewer profile not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        interviews = Interview.objects.filter(interviewer=interviewer).order_by('date', 'start_time')
+        serializer = InterviewSerializer(interviews, many=True)
         return Response(serializer.data)
